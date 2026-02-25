@@ -69,3 +69,20 @@ Please cite our paper if you find the code useful:
 }
 ```
 
+
+## Web interface (Flask)
+
+A simple web interface is available under `web/` for the three recommendation workflows in this repo:
+
+1. Outfit compatibility scoring
+2. Fill-in-the-Blank item replacement
+3. Multimodal ranking (text + category preferences)
+
+Run it with:
+
+```bash
+pip install flask
+python web/app.py
+```
+
+Then open `http://localhost:5000`.
