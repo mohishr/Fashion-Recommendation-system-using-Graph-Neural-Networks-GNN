@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+  <main class="container">
+    <a href="/" class="back">← Back</a>
+    <h1>{{ title }}</h1>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if title == 'Compatibility Recommendation' and data %}
+      <div class="card">
+        <p><strong>Outfit ID:</strong> {{ data.set_id }}</p>
+        <p><strong>Compatibility Score:</strong> {{ data.score }} / 100</p>
+        <p><strong>Categories:</strong> {{ data.categories | join(', ') }}</p>
+      </div>
+      {% if data.images %}
+      <div class="image-grid">
+        {% for img in data.images %}
+          <img src="{{ img }}" alt="item image"/>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endif %}
+
+    {% if title == 'Fill-in-the-Blank Recommendation' and data %}
+      <div class="card">
+        <p><strong>Outfit ID:</strong> {{ data.set_id }}</p>
+        <p><strong>Held-out category:</strong> {{ data.recs.removed_category }}</p>
+        <ul>
+          {% for item in data.recs.suggestions %}
+            <li>{{ item.category_name }} (id {{ item.category_id }}) - score {{ item.score }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% if data.images %}
+      <div class="image-grid">
+        {% for img in data.images %}
+          <img src="{{ img }}" alt="item image"/>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endif %}
+
+    {% if title == 'Multimodal Recommendation' and data %}
+      <div class="card">
+        <p><strong>Query:</strong> {{ data.text_query }}</p>
+      </div>
+      <div class="card">
+        <ol>
+          {% for row in data.results %}
+            <li>
+              <strong>Set {{ row.set_id }}</strong> — score {{ row.score }}<br/>
+              <span>{{ row.categories | join(', ') }}</span>
+            </li>
+          {% endfor %}
+        </ol>
+      </div>
+    {% endif %}
+
+  </main>
+</body>
+</html>
