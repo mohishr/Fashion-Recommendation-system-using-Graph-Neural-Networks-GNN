@@ -20,7 +20,7 @@ def index():
 
 @app.route("/data/polyvore-images_smallsample/<set_id>/<filename>")
 def sample_images(set_id, filename):
-    return send_from_directory(f"data/polyvore-images_smallsample/{set_id}", filename)
+    return send_from_directory(f"../data/polyvore-images_smallsample/{set_id}", filename)
 
 
 @app.route("/compatibility", methods=["POST"])
