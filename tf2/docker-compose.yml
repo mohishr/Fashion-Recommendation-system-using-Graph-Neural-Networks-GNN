@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  tensorflow:
+    image: tensorflow/tensorflow:2.15.0-jupyter
+    container_name: tf_cpu
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./:/tf/workspace
+    environment:
+      - JUPYTER_TOKEN=tensorflow
+    restart: unless-stopped

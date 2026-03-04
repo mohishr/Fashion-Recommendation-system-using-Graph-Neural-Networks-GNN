@@ -1,0 +1,2 @@
+docker run -it --rm -v .:/tmp -v ../data:/data -w /tmp tensorflow/tensorflow python ./train_gnn_ranker.py
+docker compose up -d
