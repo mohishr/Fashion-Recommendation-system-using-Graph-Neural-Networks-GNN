@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NGNN Compatibility Predictor</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem auto; max-width: 760px; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
+    label { display: block; margin: 0.6rem 0 0.2rem; font-weight: 600; }
+    input[type=text] { width: 100%; padding: 0.55rem; }
+    button { margin-top: 1rem; padding: 0.6rem 1rem; cursor: pointer; }
+    .ok { color: #0d7a1f; }
+    .warn { color: #c06a00; }
+    code { background: #f5f5f5; padding: 0.15rem 0.35rem; }
+  </style>
+</head>
+<body>
+  <h1>NGNN Outfit Compatibility Interface</h1>
+
+  <div class="card">
+    <h3>Model status</h3>
+    {% if model_loaded %}
+      <p class="ok"><strong>Loaded:</strong> yes</p>
+      <p>Checkpoint: <code>{{ ckpt }}</code></p>
+    {% else %}
+      <p class="warn"><strong>Loaded:</strong> no (running with random weights)</p>
+      <p>Put checkpoint files in <code>model_interfacing/model_weights/</code> or set <code>NGNN_CKPT_PATH</code>.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Predict compatibility score</h3>
+    <form action="/predict_form" method="post">
+      <label>Item 1 text</label>
+      <input type="text" name="text1" placeholder="e.g., black t-shirt" />
+
+      <label>Item 1 image path (optional absolute path)</label>
+      <input type="text" name="image1" placeholder="/path/to/item1.jpg" />
+
+      <label>Item 2 text</label>
+      <input type="text" name="text2" placeholder="e.g., blue denim jeans" />
+
+      <label>Item 2 image path (optional absolute path)</label>
+      <input type="text" name="image2" placeholder="/path/to/item2.jpg" />
+
+      <button type="submit">Predict score</button>
+    </form>
+
+    {% if compatibility_score is defined %}
+      <p><strong>Compatibility score:</strong> {{ compatibility_score }}</p>
+    {% endif %}
+
+    {% if error %}
+      <p class="warn"><strong>Error:</strong> {{ error }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <p>JSON API endpoint: <code>POST /api/predict</code></p>
+    <pre>{
+  "items": [
+    {"text": "black t-shirt", "image_path": "/abs/path/item1.jpg"},
+    {"text": "blue denim jeans", "image_path": "/abs/path/item2.jpg"}
+  ]
+}</pre>
+  </div>
+</body>
+</html>
