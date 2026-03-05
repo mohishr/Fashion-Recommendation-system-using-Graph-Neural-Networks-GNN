@@ -2,11 +2,6 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 
-
-# =========================
-# GGNN MODEL
-# =========================
-
 class MessagePassing(layers.Layer):
     def __init__(self, hidden_size):
         super().__init__()
@@ -18,7 +13,6 @@ class MessagePassing(layers.Layer):
         agg = tf.matmul(adj, h_out)
         return self.w_in(agg)
 
-
 class GGNN(Model):
     def __init__(self, hidden_size=64, steps=3):
         super().__init__()
@@ -29,22 +23,14 @@ class GGNN(Model):
 
     def call(self, images, adj):
         h = self.input_proj(images)
-
         for _ in range(self.steps):
             msg = self.message(h, adj)
-
-            B = tf.shape(msg)[0]
-            N = tf.shape(msg)[1]
-            H = tf.shape(msg)[2]
-
+            B, N, H = tf.shape(msg)[0], tf.shape(msg)[1], tf.shape(msg)[2]
             h_flat = tf.reshape(h, [-1, H])
             msg_flat = tf.reshape(msg, [-1, H])
-
             new_h, _ = self.gru(msg_flat, [h_flat])
             h = tf.reshape(new_h, [B, N, H])
-
         return h
-
 
 class RankModel(Model):
     def __init__(self, hidden_size=64, steps=3):
@@ -58,69 +44,41 @@ class RankModel(Model):
         conf = self.w_conf(h)
         score = tf.nn.leaky_relu(self.w_score(h))
         node_score = conf * score
-        return tf.reduce_sum(node_score, axis=1)
-
-
-# =========================
-# FEATURE EXTRACTOR (TF ONLY)
-# =========================
+        return tf.reduce_sum(node_score, axis=1, keepdims=True)
 
 class FeatureExtractor:
     def __init__(self):
         self.preprocess = tf.keras.applications.inception_v3.preprocess_input
         self.model = tf.keras.applications.InceptionV3(
-            include_top=False,
-            weights="imagenet",
-            pooling="avg"
+            include_top=False, weights="imagenet", pooling="avg"
         )
 
     def extract_from_array(self, image_array):
-        """
-        image_array: numpy array (H, W, 3)
-        dtype: uint8 or float32
-        RGB format
-        """
-
-        # Convert to tensor
         img = tf.convert_to_tensor(image_array)
-
-        # Ensure float32
         img = tf.cast(img, tf.float32)
-
-        # Resize using TF
         img = tf.image.resize(img, (299, 299))
-
-        # Add batch dimension
         img = tf.expand_dims(img, axis=0)
-
-        # Preprocess for InceptionV3
         img = self.preprocess(img)
-
         features = self.model(img, training=False)
+        return features[0].numpy()
 
-        return features[0].numpy()  # 2048-dim
-
-
-# =========================
-# COMPATIBILITY API
-# =========================
+    def extract_from_bytes(self, img_bytes):
+        import io, PIL.Image
+        img = PIL.Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        arr = np.array(img)
+        return self.extract_from_array(arr)
 
 class OutfitCompatibilityAPI:
     def __init__(self, weights_path="./ggnn_ranker.weights.h5"):
         self.max_items = 10
         self.hidden_size = 64
         self.steps = 3
-
         self.model = RankModel(self.hidden_size, self.steps)
-
-        # Build model
         dummy_images = np.zeros((1, self.max_items, 2048), dtype=np.float32)
         dummy_graph = np.zeros((1, self.max_items, self.max_items), dtype=np.float32)
         self.model(dummy_images, dummy_graph)
-
         self.model.load_weights(weights_path)
         print("Model loaded successfully.")
-
         self.extractor = FeatureExtractor()
 
     def build_graph(self, num_items):
@@ -129,41 +87,20 @@ class OutfitCompatibilityAPI:
         return graph
 
     def predict_from_arrays(self, image_arrays):
-        """
-        image_arrays: list of numpy arrays [(H,W,3), ...]
-        """
-
-        features = []
-
-        for img in image_arrays:
-            feat = self.extractor.extract_from_array(img)
-            features.append(feat)
-
-        # Pad to max_items
+        features = [self.extractor.extract_from_array(img) for img in image_arrays]
         while len(features) < self.max_items:
             features.append(np.zeros(2048, dtype=np.float32))
-
         images = np.array([features])
         graph = np.array([self.build_graph(len(image_arrays))])
-
         score = self.model(images, graph)
-
         return float(score.numpy()[0][0])
 
-
-# =========================
-# TEST
-# =========================
-
-if __name__ == "__main__":
-    api = OutfitCompatibilityAPI()
-
-    # Generate 4 random pixel arrays
-    random_images = [
-        np.random.randint(0, 255, (400, 400, 3), dtype=np.uint8)
-        for _ in range(10)
-    ]
-
-    score = api.predict_from_arrays(random_images)
-
-    print("Compatibility score:", score)
+    def predict_from_embeddings(self, embeddings_list):
+        while len(embeddings_list) < self.max_items:
+            embeddings_list.append(np.zeros(2048, dtype=np.float32))
+        embeddings = np.expand_dims(np.array(embeddings_list, dtype=np.float32), axis=0)
+        graph = np.ones((1, self.max_items, self.max_items), dtype=np.float32)
+        embeddings = tf.convert_to_tensor(embeddings)
+        graph = tf.convert_to_tensor(graph)
+        score = self.model(embeddings, graph)
+        return float(score.numpy().squeeze())

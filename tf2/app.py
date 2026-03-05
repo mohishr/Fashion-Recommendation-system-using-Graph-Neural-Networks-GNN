@@ -1,173 +1,104 @@
 import os
-import traceback
 import base64
+import traceback
 import numpy as np
-import tensorflow as tf
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, request, jsonify, render_template
 
-from outfit_interface_px_tfonly import OutfitCompatibilityAPI
-from recommendation_engine import RecommenderEngine
+from interface import OutfitCompatibilityAPI, FeatureExtractor
+from recommend import RecommenderEngine
 
 app = Flask(__name__)
 
-# ==========================================================
-# Initialize Model API
-# ==========================================================
+# Initialize components
+print("Initializing Feature Extractor...")
+extractor = FeatureExtractor()
 
-print("Initializing Outfit Compatibility API...")
-api = OutfitCompatibilityAPI()
+print("Initializing NGNN Predictor...")
+predictor = OutfitCompatibilityAPI(weights_path="./ggnn_ranker.weights.h5")
 
 print("Initializing Recommender Engine...")
-recommender = RecommenderEngine(api)
+recommender = RecommenderEngine()
+recommender.predictor = predictor
+recommender.extractor = extractor
 
+# --------------------------
+# Routes
+# --------------------------
+@app.route("/")
+def home():
+    return render_template("index.html")
 
-# ==========================================================
-# ROUTES
-# ==========================================================
-
-@app.route('/', methods=['GET'])
-def index():
-    return render_template('index.html')
-
-
-# ----------------------------------------------------------
-# MODEL STATUS
-# ----------------------------------------------------------
-
-@app.route('/api/model_status', methods=['GET'])
-def model_status():
-    return jsonify({
-        'model_loaded': True,
-        'message': 'Model loaded successfully.'
-    })
-
-
-# ----------------------------------------------------------
-# COMPATIBILITY PREDICTION
-# ----------------------------------------------------------
-
-@app.route('/api/predict', methods=['POST'])
+@app.route("/api/predict", methods=["POST"])
 def predict_outfit():
-    """
-    Expected JSON:
-    {
-        "items": [
-            { "image_base64": "..." },
-            { "image_base64": "..." }
-        ]
-    }
-    """
-
     try:
         data = request.get_json()
+        if not data or "items" not in data:
+            return jsonify({"error": "Request must contain 'items' array"}), 400
 
-        if not data or 'items' not in data:
-            return jsonify({'error': 'Invalid request. Must contain "items" array.'}), 400
-
-        items = data['items']
-
+        items = data["items"]
         if len(items) < 2:
-            return jsonify({'error': 'Outfit must contain at least 2 items.'}), 400
+            return jsonify({"error": "At least 2 items required"}), 400
 
+        # Extract pixel arrays from uploaded items
         image_arrays = []
-
         for item in items:
-            if 'image_base64' not in item:
-                continue
+            if "image_array" in item:
+                image_arrays.append(np.array(item["image_array"], dtype=np.uint8))
+            elif "image_base64" in item:
+                img_bytes = base64.b64decode(item["image_base64"])
+                img_array = extractor.bytes_to_array(img_bytes)
+                image_arrays.append(img_array)
 
-            img_bytes = base64.b64decode(item['image_base64'])
-
-            # Decode using TensorFlow
-            img = tf.image.decode_image(img_bytes, channels=3)
-            img = img.numpy()
-
-            image_arrays.append(img)
-
-        if len(image_arrays) < 2:
-            return jsonify({'error': 'At least 2 valid images required.'}), 400
-
-        score = api.predict_from_arrays(image_arrays)
+        score = predictor.predict_from_arrays(image_arrays)
+        normalized_score = max(0, min(100, score * 10))  # scale to 0–100
 
         return jsonify({
-            'compatibility_score': float(score),
-            'message': 'Score successfully calculated.'
+            "compatibility_score": float(normalized_score),
+            "message": "Score calculated."
         }), 200
 
     except Exception as e:
         print("Prediction Error:", e)
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-
-# ----------------------------------------------------------
-# ITEM RECOMMENDATION
-# ----------------------------------------------------------
-
-@app.route('/api/recommend_item', methods=['POST'])
+@app.route("/api/recommend_item", methods=["POST"])
 def recommend_item():
-    """
-    Expected JSON:
-    {
-        "partial_outfit": [
-            { "image_base64": "..." }
-        ],
-        "target_category": "shoes"
-    }
-    """
-
     try:
         data = request.get_json()
+        if not data or "partial_outfit" not in data or "target_category" not in data:
+            return jsonify({"error": "Must provide partial_outfit and target_category"}), 400
 
-        if not data or 'partial_outfit' not in data or 'target_category' not in data:
-            return jsonify({'error': 'Must provide partial_outfit and target_category'}), 400
+        partial_outfit = []
+        for item in data["partial_outfit"]:
+            if "image_base64" in item:
+                img_bytes = base64.b64decode(item["image_base64"])
+                img_feat = extractor.extract_from_bytes(img_bytes)
+                txt_feat = extractor.extract_text_features(item.get("text", ""))
+                partial_outfit.append({
+                    "image_embedding": img_feat.tolist(),
+                    "text_embedding": txt_feat.tolist()
+                })
 
-        extracted_outfit = []
-
-        for item in data['partial_outfit']:
-            if 'image_base64' not in item:
-                continue
-
-            img_bytes = base64.b64decode(item['image_base64'])
-
-            img = tf.image.decode_image(img_bytes, channels=3)
-            img = img.numpy()
-
-            # Extract embedding using API extractor
-            img_embedding = api.extractor.extract_from_array(img)
-
-            extracted_outfit.append({
-                'image_embedding': img_embedding.tolist()
-            })
-
-        recommendations = recommender.get_recommendations_for_outfit(
-            partial_outfit=extracted_outfit,
-            target_category=data['target_category'],
-            top_n=10
+        top_items = recommender.get_recommendations_for_outfit(
+            partial_outfit=partial_outfit,
+            target_category=data["target_category"],
+            top_n=5
         )
 
         return jsonify({
-            'target_category': data['target_category'],
-            'recommendations': recommendations
+            "target_category": data["target_category"],
+            "recommendations": top_items
         }), 200
 
     except Exception as e:
-        print("Recommender Error:", e)
+        print("Recommendation Error:", e)
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-
-# ----------------------------------------------------------
-# HEALTH CHECK
-# ----------------------------------------------------------
-
-@app.route('/health', methods=['GET'])
+@app.route("/api/health", methods=["GET"])
 def health_check():
-    return jsonify({'status': 'healthy'}), 200
+    return jsonify({"status": "healthy"}), 200
 
-
-# ==========================================================
-# RUN SERVER
-# ==========================================================
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)
