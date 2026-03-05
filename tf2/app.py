@@ -1,104 +1,141 @@
-import os
 import base64
-import traceback
-import numpy as np
-from flask import Flask, request, jsonify, render_template
+import random
+from io import BytesIO
 
-from interface import OutfitCompatibilityAPI, FeatureExtractor
-from recommend import RecommenderEngine
+from flask import Flask, request, jsonify
+from PIL import Image
+import numpy as np
 
 app = Flask(__name__)
 
-# Initialize components
-print("Initializing Feature Extractor...")
-extractor = FeatureExtractor()
 
-print("Initializing NGNN Predictor...")
-predictor = OutfitCompatibilityAPI(weights_path="./ggnn_ranker.weights.h5")
+# ===============================
+# Utility Functions
+# ===============================
 
-print("Initializing Recommender Engine...")
-recommender = RecommenderEngine()
-recommender.predictor = predictor
-recommender.extractor = extractor
+def read_images(files):
+    """
+    Convert uploaded images into PIL and numpy arrays
+    """
+    images = []
+    for file in files:
+        img = Image.open(file.stream).convert("RGB")
+        images.append(img)
+    return images
 
-# --------------------------
-# Routes
-# --------------------------
-@app.route("/")
-def home():
-    return render_template("index.html")
+
+def image_to_base64(img):
+    """
+    Convert PIL image to base64 string
+    """
+    buffer = BytesIO()
+    img.save(buffer, format="JPEG")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+# ===============================
+# API 1: Outfit Compatibility
+# ===============================
 
 @app.route("/api/predict", methods=["POST"])
 def predict_outfit():
-    try:
-        data = request.get_json()
-        if not data or "items" not in data:
-            return jsonify({"error": "Request must contain 'items' array"}), 400
 
-        items = data["items"]
-        if len(items) < 2:
-            return jsonify({"error": "At least 2 items required"}), 400
+    images = request.files.getlist("images")
 
-        # Extract pixel arrays from uploaded items
-        image_arrays = []
-        for item in items:
-            if "image_array" in item:
-                image_arrays.append(np.array(item["image_array"], dtype=np.uint8))
-            elif "image_base64" in item:
-                img_bytes = base64.b64decode(item["image_base64"])
-                img_array = extractor.bytes_to_array(img_bytes)
-                image_arrays.append(img_array)
+    if len(images) < 2:
+        return jsonify({"error": "Upload at least 2 images"}), 400
 
-        score = predictor.predict_from_arrays(image_arrays)
-        normalized_score = max(0, min(100, score * 10))  # scale to 0–100
+    pil_images = read_images(images)
 
-        return jsonify({
-            "compatibility_score": float(normalized_score),
-            "message": "Score calculated."
-        }), 200
+    # ------------------------------
+    # Dummy compatibility model
+    # Replace this with your ML code
+    # ------------------------------
+    score = random.uniform(0.5, 0.95)
 
-    except Exception as e:
-        print("Prediction Error:", e)
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "compatibility_score": score
+    })
+
+
+# ===============================
+# API 2: Recommend Item
+# ===============================
 
 @app.route("/api/recommend_item", methods=["POST"])
 def recommend_item():
-    try:
-        data = request.get_json()
-        if not data or "partial_outfit" not in data or "target_category" not in data:
-            return jsonify({"error": "Must provide partial_outfit and target_category"}), 400
 
-        partial_outfit = []
-        for item in data["partial_outfit"]:
-            if "image_base64" in item:
-                img_bytes = base64.b64decode(item["image_base64"])
-                img_feat = extractor.extract_from_bytes(img_bytes)
-                txt_feat = extractor.extract_text_features(item.get("text", ""))
-                partial_outfit.append({
-                    "image_embedding": img_feat.tolist(),
-                    "text_embedding": txt_feat.tolist()
-                })
+    target_category = request.form.get("target_category")
+    images = request.files.getlist("images")
 
-        top_items = recommender.get_recommendations_for_outfit(
-            partial_outfit=partial_outfit,
-            target_category=data["target_category"],
-            top_n=5
+    if not images:
+        return jsonify({"error": "Upload at least one image"}), 400
+
+    pil_images = read_images(images)
+
+    # ------------------------------
+    # Dummy recommendation results
+    # ------------------------------
+    recommendations = []
+
+    for i in range(5):
+
+        # Create dummy colored image
+        img = Image.new(
+            "RGB",
+            (150, 150),
+            (
+                random.randint(0,255),
+                random.randint(0,255),
+                random.randint(0,255)
+            )
         )
 
-        return jsonify({
-            "target_category": data["target_category"],
-            "recommendations": top_items
-        }), 200
+        base64_img = image_to_base64(img)
 
-    except Exception as e:
-        print("Recommendation Error:", e)
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        recommendations.append({
+            "score": random.uniform(0.6, 0.95),
+            "image_base64": base64_img,
+            "category": target_category
+        })
+
+    return jsonify({
+        "recommendations": recommendations
+    })
+
+
+# ===============================
+# API 3: Virtual Stylist
+# ===============================
+
+@app.route("/api/generate_outfits", methods=["POST"])
+def generate_outfits():
+
+    outfits = [
+        "Casual street outfit: hoodie + jeans + sneakers",
+        "Smart casual: blazer + white tee + chinos",
+        "Summer look: linen shirt + shorts + loafers",
+        "Winter outfit: coat + knit sweater + boots",
+        "Minimalist: black tee + slim pants + white sneakers"
+    ]
+
+    return jsonify({
+        "message": random.choice(outfits)
+    })
+
+
+# ===============================
+# Health Check
+# ===============================
 
 @app.route("/api/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "healthy"}), 200
+def health():
+    return jsonify({"status": "running"})
+
+
+# ===============================
+# Run Server
+# ===============================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=True)
